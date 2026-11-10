@@ -1,0 +1,17 @@
+create extension if not exists pgcrypto;
+create table if not exists public.profiles(id uuid primary key references auth.users(id) on delete cascade,email text unique not null,role text not null default 'member' check(role in ('member','admin')),created_at timestamptz default now());
+create table if not exists public.albums(id uuid primary key default gen_random_uuid(),title text not null,description text default '',created_at timestamptz default now());
+create table if not exists public.videos(id uuid primary key default gen_random_uuid(),album_id uuid not null references public.albums(id) on delete cascade,title text not null,storage_path text not null,created_at timestamptz default now());
+create table if not exists public.payments(id uuid primary key default gen_random_uuid(),user_id uuid not null references public.profiles(id) on delete cascade,method text not null check(method in('manual','midtrans')),amount integer not null check(amount>0),plan_key text not null default '7d' check(plan_key in('7d','30d','90d','permanent')),duration_days integer,status text not null default 'pending' check(status in('pending','paid','rejected','expired')),proof_path text,midtrans_order_id text unique,created_at timestamptz default now(),paid_at timestamptz);
+create table if not exists public.subscriptions(id uuid primary key default gen_random_uuid(),user_id uuid not null references public.profiles(id) on delete cascade,payment_id uuid not null unique references public.payments(id),starts_at timestamptz not null default now(),ends_at timestamptz,created_at timestamptz default now());
+create index if not exists videos_album_idx on public.videos(album_id);
+create index if not exists subs_user_end_idx on public.subscriptions(user_id,ends_at desc);
+alter table public.profiles enable row level security; alter table public.albums enable row level security; alter table public.videos enable row level security; alter table public.payments enable row level security; alter table public.subscriptions enable row level security;
+create policy "profile self read" on public.profiles for select using(auth.uid()=id);
+create policy "albums authenticated read" on public.albums for select to authenticated using(true);
+create policy "videos authenticated read" on public.videos for select to authenticated using(true);
+create policy "payments own read" on public.payments for select using(auth.uid()=user_id);
+create policy "subscriptions own read" on public.subscriptions for select using(auth.uid()=user_id);
+create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path=public as $$ begin insert into public.profiles(id,email) values(new.id,new.email) on conflict(id) do nothing; return new; end; $$;
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();

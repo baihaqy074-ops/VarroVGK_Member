@@ -1,0 +1,5 @@
+import {createClient} from "@supabase/supabase-js";import {NextRequest} from "next/server";
+export const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{autoRefreshToken:false,persistSession:false}});
+export async function userFrom(req:NextRequest){const t=req.headers.get("authorization")?.replace(/^Bearer\s+/i,"");if(!t)return null;const {data,error}=await db.auth.getUser(t);return error?null:data.user;}
+export async function adminFrom(req:NextRequest){const u=await userFrom(req);if(!u)return {user:null,status:401,error:"Unauthorized"};const {data}=await db.from("profiles").select("role").eq("id",u.id).single();return data?.role==="admin"?{user:u,status:200,error:""}:{user:null,status:403,error:"Forbidden"};}
+export async function memberFrom(req:NextRequest){const u=await userFrom(req);if(!u)return {user:null,status:401,error:"Unauthorized"};const {data}=await db.from("subscriptions").select("id").eq("user_id",u.id).gt("ends_at",new Date().toISOString()).limit(1).maybeSingle();return data?{user:u,status:200,error:""}:{user:null,status:402,error:"Subscription inactive"};}
